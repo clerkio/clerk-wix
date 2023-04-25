@@ -1,0 +1,523 @@
+#+TITLE: Clerk.io Pixel and Widget Injection for Wix
+#+AUTHOR: Alexander Bugge Stage
+#+EMAIL: abs@clerk.io
+
+#+DESCRIPTION: Guide document for implementing Clerk.io in Wix's React based WYSIWYG editor.
+#+KEYWORDS: wix, clerk.io, ecommerce, personalization, search, recommendations, embedcode, injection
+#+LANGUAGE: en
+#+STARTUP: hideblocks
+
+* Structure and Design
+
+The Wix editor is made using React, and likewise the frontend for it also renders the site using React components.
+This poses a few restrictions in terms of data acccess while also imposing limits on how you can interact with information on the page.
+
+As a result the code for Clerk is segmented in 4 main sections:
+
+- Affiliate tracking script.
+_{ Clerk.js, located in a field outside the Editor or Theme. }
+
+- Utility functions.
+_{ Utility function library located in the Theme ~public~ resource. }
+
+- Custom element scripts.
+_{ A number of custom-element.js files located in the Theme ~public/custom-elements~ resource.  }
+
+- Element hydration scripts.
+_{ A number of snippets placed in the appropriate controllers page.js file which hydrate elements with contextual data before hydration. }
+
+* Affiliate Tracking Script
+
+This script loads the Clerk.js library and class into the window. This is needed for all pages, to be loaded once in the header.
+
+~clerk.js~ \\
+_{ makes ~Clerk(**args)~ available in window scope. }
+#+BEGIN_SRC html
+<script>
+(function(w,d){
+    const CLERK_INIT_CLASS = 'clerk_manual';
+    w.clerk_init_class = CLERK_INIT_CLASS;
+    var e=d.createElement('script');e.type='text/javascript';e.async=true;
+    e.src=(d.location.protocol=='https:'?'https':'http')+'://cdn.clerk.io/clerk.js';
+    var s=d.getElementsByTagName('script')[0];s.parentNode.insertBefore(e,s);
+    w.__clerk_q=w.__clerk_q||[];w.Clerk=w.Clerk||function(){ w.__clerk_q.push(arguments) };
+})(window,document);
+
+Clerk('config', {
+    key: 'PUBLIC_API_KEY'
+});
+</script>
+#+END_SRC
+
+
+* Utility Functions
+
+In order to keep the setup organized all functions used to retrieve contextual data, are stored in ~public/clerk-wix.js~ .
+
+These functions are imported in the element hydration scripts, in order to populate data before Clerk initialization.
+
+** Data Retrieval
+
+~clerkGetCart()~ \\
+_{ gets cart object, contex anywhere. }
+#+BEGIN_SRC js
+export const clerkGetCart = async () => {
+    const currentCart = await cart.getCurrentCart();
+    const cartInfo = { cartId: currentCart._id, cartLineItems: currentCart.lineItems }
+    return cartInfo;
+}
+#+END_SRC
+
+~clerkGetCartProducts()~ \\
+_{ gets product ids in cart, contex anywhere. }
+#+BEGIN_SRC js
+export const clerkGetCartProducts = async () => {
+	const cart = await clerkGetCart();
+    const product_ids = cart.cartLineItems.map(line_item => {
+        return line_item?.productId;
+    });
+	return product_ids;
+}
+#+END_SRC
+
+~clerkGetQuery()~ \\
+_{ gets value of q param if present, contex anywhere. }
+#+BEGIN_SRC js
+export const clerkGetQuery = (wixLocation) => {
+	return wixLocation.query['q'];
+}
+#+END_SRC
+
+~clerkGetProduct()~ \\
+_{ gets the current product id, context product page. }
+#+BEGIN_SRC js
+export const clerkGetProduct = async () => {
+	const product = await $w('#productPage1').getProduct();
+	return product?._id;
+}
+#+END_SRC
+
+~clerkGetOrder()~ \\
+_{ gets the current order, context thank you page. }
+#+BEGIN_SRC js
+export const clerkGetOrder = async () => {
+	const order = await $w('#thankYouPage1').getOrder();
+	return order;
+}
+#+END_SRC
+
+** Document Manipulation
+
+~clerkHydrateBasketTracking()~ \\
+_{ hydrates basket tracking, context anywhere. }
+#+BEGIN_SRC js
+export const clerkHydrateBasketTracking = async (selector_list=['']) => {
+	const product_ids = await clerkGetCartProducts();
+	selector_list.forEach(el => {
+		if($w(el).length !== 0){
+			$w(el).setAttribute('data-products', product_ids);
+		}
+	});
+}
+#+END_SRC
+
+~clerkHydrateSalesTracking()~ \\
+_{ hydrates sales tracking, context thank you page. }
+#+BEGIN_SRC js
+export const clerkHydrateSalesTracking = async (selector_list=['']) => {
+    const order_details = await clerkGetOrder();
+	const order_products = order_details.lineItems.map(line_item => {
+		return {id: line_item.productId, quantity: line_item.quantity, price: line_item.tax + line_item.priceData.price}
+	});
+	selector_list.forEach(el => {
+        if($w(el).length !== 0){
+            $w(el).setAttribute('data-sale', order_details._id);
+            $w(el).setAttribute('data-email', order_details.buyerInfo.email);
+            $w(el).setAttribute('data-products', order_products);
+        }
+	});
+}
+#+END_SRC
+
+~clerkHydrateCartSlider()~ \\
+_{ hydrates slider with product ids in cart, context anywhere. }
+#+BEGIN_SRC js
+export const clerkHydrateCartSlider = async (selector_list=['']) => {
+    const product_ids = await clerkGetCartProducts();
+	selector_list.forEach(el => {
+		if($w(el).length !== 0){
+			$w(el).setAttribute('data-products', `${JSON.stringify(product_ids)}`);
+		}
+	});
+}
+#+END_SRC
+
+~clerkHydrateProductSlider()~ \\
+_{ hydrates slider with current product id, context product page. }
+#+BEGIN_SRC js
+export const clerkHydrateProductSlider = async (selector_list=['']) => {
+    const product_id = await clerkGetProduct();
+	selector_list.forEach(el => {
+		if($w(el).length !== 0){
+			$w(el).setAttribute('data-products', `["${product_id}"]`);
+		}
+	});
+}
+#+END_SRC
+
+~clerkHydrateSearchPage()~ \\
+_{ hydrates search page with query, context search page. }
+#+BEGIN_SRC js
+export const clerkHydrateSearchPage = (selector_list=[''], wixLocation) => {
+    const query = clerkGetQuery(wixLocation);
+    selector_list.forEach(el => {
+        if($w(el).length !== 0){
+            $w(el).setAttribute('data-query', query);
+        }
+	});
+}
+#+END_SRC
+
+* Components
+
+Components are created as Custom Elements. All elements created for Clerk use the following pattern ~clerk-*~ in the tag naming convention.
+
+~<clerk-slider>~ \\
+_{ clerk slider element, context anywhere. }
+#+BEGIN_SRC js
+// Attributes with significance which are expected to be static.
+const RESERVED_ATTRIBUTES = [
+	'template',
+	'keywords'
+];
+
+const keywordsRegex = /([[\]"',])/g;
+
+const mutationCallback = (mutationsList) => {
+    for (const mutation of mutationsList) {
+        if (
+            mutation.attributeName !== "data-products"
+        ) {
+        return
+        }
+        mutation.target.removeAttribute('data-clerk-content-id');
+        mutation.target.innerHTML = '';
+        window.Clerk('content', `.${window.clerk_init_class}`);
+    }
+}
+
+const observer = new MutationObserver(mutationCallback);
+
+class clerkSlider extends HTMLElement {
+	constructor() {
+		super();
+	}
+
+	static get observedAttributes() {
+		return RESERVED_ATTRIBUTES;
+	}
+
+	attributeChangedCallback(name, oldValue, newValue) {
+		if(this && newValue){
+			if(RESERVED_ATTRIBUTES.includes(name)) {
+				this.removeAttribute(name);
+			}
+			if(name === 'template'){
+				// If input template, set data attribute and force ID on element
+				if(newValue.includes('@')){
+					this.dataset.template = newValue;
+					this.id = newValue.replace('@', '');
+				}
+			}
+			if(name === 'keywords'){
+				// If input given as JSON list remove quotes and brackets
+				this.dataset.keywords = (newValue.match(keywordsRegex)) ? newValue.replace(keywordsRegex, '') : newValue;
+			}
+		}
+	}
+
+	disconnectedCallback() {
+		observer.disconnect();
+	}
+
+	connectedCallback() {
+		this.className = window.clerk_init_class;
+		window.Clerk('content', `.${window.clerk_init_class}`);
+		observer.observe(this, {attributes: true, childList: false, characterData: false});
+	}
+
+}
+
+customElements.define('clerk-slider', clerkSlider);
+#+END_SRC
+
+~<clerk-live-search>~ \\
+_{ clerk live search element, context anywhere. }
+#+BEGIN_SRC js
+// Attributes with significance which are expected to be static.
+const RESERVED_ATTRIBUTES = [
+	'template',
+	'instant-search',
+    'instant-search-suggestions',
+    'instant-search-categories',
+    'instant-search-pages',
+    'instant-search-positioning'
+];
+
+class clerkLiveSearch extends HTMLElement {
+	constructor() {
+		super();
+	}
+
+	static get observedAttributes() {
+		return RESERVED_ATTRIBUTES;
+	}
+
+	attributeChangedCallback(name, oldValue, newValue) {
+		if(this && newValue){
+			if(RESERVED_ATTRIBUTES.includes(name)) {
+				this.removeAttribute(name);
+			}
+			if(name === 'template'){
+				// If input template, set data attribute and force ID on element
+				this.dataset.template = newValue;
+				this.id = newValue.replace('@', '');
+			}
+			if(name === 'instant-search'){
+				this.dataset.instantSearch = newValue;
+			}
+            if(name === 'instant-search-suggestions'){
+				this.dataset.instantSearchSuggestions = newValue;
+			}
+            if(name === 'instant-search-categories'){
+				this.dataset.instantSearchCategories = newValue;
+			}
+            if(name === 'instant-search-pages'){
+				this.dataset.instantSearchPages = newValue;
+			}
+            if(name === 'instant-search-positioning'){
+				this.dataset.instantSearchPositioning = newValue;
+			}
+		}
+	}
+
+	connectedCallback() {
+        // Setting Default values and propagating event.
+		this.className = window.clerk_init_class;
+        this.dataset.template = '@live-search';
+        this.dataset.instantSearch = 'input[type="search"]';
+		this.dataset.instantSearchSuggestions = 5;
+		this.dataset.instantSearchCategories = 5;
+		this.dataset.instantSearchPages = 5;
+		this.dataset.instantSearchPositioning = 'left';
+		window.Clerk('content', `.${window.clerk_init_class}`);
+	}
+
+}
+
+customElements.define('clerk-live-search', clerkLiveSearch);
+#+END_SRC
+
+~<clerk-search>~ \\
+_{ clerk search page element, context search page. }
+#+BEGIN_SRC js
+// Attributes with significance which are expected to be static.
+const RESERVED_ATTRIBUTES = [
+	'template',
+    'target',
+	'facets-target',
+    'facets-attributes',
+    'facets-titles',
+    'facets-price-prepend',
+    'facets-in-url',
+    'facets-view-more-text',
+    'facets-searchbox-text',
+    'facets-design'
+];
+
+const DEFAULT_INNER_HTML = `<div id="clerk-search-page-wrap">
+                                <div id="clerk-facets-wrap">
+                                    <div id="clerk-facet-toggle"></div>
+                                    <div id="clerk-search-filters"></div>
+                                </div>
+                                <div id="clerk-search-results"></div>
+                            </div>`;
+
+
+const mutationCallback = (mutationsList) => {
+    for (const mutation of mutationsList) {
+        if (
+        mutation.attributeName !== "data-query"
+        ) {
+        return
+        }
+        mutation.target.removeAttribute('data-clerk-content-id');
+        mutation.target.innerHTML = DEFAULT_INNER_HTML;
+        window.Clerk('content', `.${window.clerk_init_class}`);
+    }
+}
+
+const observer = new MutationObserver(mutationCallback);
+
+class clerkSearch extends HTMLElement {
+	constructor() {
+		super();
+	}
+
+	static get observedAttributes() {
+		return RESERVED_ATTRIBUTES;
+	}
+
+	attributeChangedCallback(name, oldValue, newValue) {
+		if(this && newValue){
+			if(RESERVED_ATTRIBUTES.includes(name)) {
+				this.removeAttribute(name);
+			}
+			if(name === 'template'){
+				// If input template, set data attribute and force ID on element
+				this.dataset.template = newValue;
+				this.id = newValue.replace('@', '');
+			}
+			if(name === 'target'){
+				this.dataset.target = newValue;
+			}
+			if(name === 'facets-target'){
+				this.dataset.facetsTarget = newValue;
+			}
+            if(name === 'facets-attributes'){
+                this.dataset.facetsAttributes = newValue;
+            }
+            if(name === 'facets-titles'){
+                this.dataset.facetsTitles = newValue;
+            }
+            if(name === 'facets-price-prepend'){
+                this.dataset.facetsPricePrepend = newValue;
+            }
+            if(name === 'facets-in-url'){
+                this.dataset.facetsInUrl = newValue;
+            }
+            if(name === 'facets-view-more-text'){
+                this.dataset.facetsViewMoreText = newValue;
+            }
+            if(name === 'facets-design'){
+                this.dataset.facetsDesign = newValue;
+            }
+		}
+	}
+
+	disconnectedCallback() {
+		observer.disconnect();
+	}
+
+	connectedCallback() {
+        // Setting Default values and propagating event.
+		this.className = window.clerk_init_class;
+        this.dataset.template = '@search-page';
+        this.dataset.target = '#clerk-search-results';
+        this.dataset.facetsTarget = '#clerk-search-filters';
+        this.innerHTML = DEFAULT_INNER_HTML;
+		window.Clerk('content', `.${window.clerk_init_class}`);
+		observer.observe(this, {attributes: true, childList: false, characterData: false});
+	}
+
+}
+
+customElements.define('clerk-search', clerkSearch);
+#+END_SRC
+
+~<clerk-sales-tracking>~ \\
+_{ sales tracking element, context thank you page. }
+#+BEGIN_SRC js
+class clerkSalesTracking extends HTMLElement {
+	constructor() {
+		super();
+	}
+
+	connectedCallback() {
+		this.className = window.clerk_init_class;
+        this.dataset.api = 'log/sale';
+		window.Clerk('content', `.${window.clerk_init_class}`);
+	}
+
+}
+
+customElements.define('clerk-sales-tracking', clerkSalesTracking);
+#+END_SRC
+
+~<clerk-backet-tracking>~ \\
+_{ clerk basket tracking element, context anywhere. }
+#+BEGIN_SRC js
+const mutationCallback = (mutationsList) => {
+    for (const mutation of mutationsList) {
+        if (
+        mutation.attributeName !== "data-products"
+        ) {
+        return
+        }
+        mutation.target.removeAttribute('data-clerk-content-id');
+        mutation.target.innerHTML = '';
+        window.Clerk('content', `.${window.clerk_init_class}`);
+    }
+}
+
+const observer = new MutationObserver(mutationCallback);
+
+class clerkBasketTracking extends HTMLElement {
+	constructor() {
+		super();
+	}
+
+	disconnectedCallback() {
+		observer.disconnect();
+	}
+
+	connectedCallback() {
+		this.className = window.clerk_init_class;
+        this.dataset.api = 'log/basket/set';
+		window.Clerk('content', `.${window.clerk_init_class}`);
+		observer.observe(this, {attributes: true, childList: false, characterData: false});
+	}
+}
+
+customElements.define('clerk-basket-tracking', clerkBasketTracking);
+
+#+END_SRC
+
+* Implementation
+
+When [[https://support.wix.com/en/article/wix-editor-adding-a-custom-element-to-your-site][adding]] the blocks to the site, you can right click them and choose to show for all pages.
+
+This should be done for blocks that exist on all pages, like ~<clerk-basket-tracking>~ or ~<clerk-live-search>~.
+These blocks are not rendered where they are positioned.
+
+For blocks that only live on a given template, such as a ~<clerk-slider>~, we only need to to place them as many times as we want on a template.
+We drag and resize them to the proper position, as this is where they will be shown.
+
+Any block can be nested in any column or strip non-custom component.
+
+The height given to a block in the WYSIWYG editor, is the minimum height not the auto or the max.
+
+Any block can be set to have default values for ~hidden~ and ~collapsed~.
+
+~hidden~
+_{ visibility: hidden; }
+
+~collapsed~
+_{ display: none; }
+
+All blocks have a list of reserved attributes you can configure on them in the WYSIWYG editor.
+
+The attributes follow the same structure our normal embedcodes do, with the ~data-*~ prefix removed.
+Eg. ~data-template => template~
+
+* Debugging
+
+* References
+
+https://www.wix.com/velo/reference/api-overview/introduction
+
+https://www.wix.com/velo/reference/$w
+
+https://support.wix.com/en/article/wix-editor-adding-a-custom-element-to-your-site
+
+https://support.wix.com/en/article/embedding-custom-code-on-your-site

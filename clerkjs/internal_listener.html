@@ -1,0 +1,24 @@
+<!-- Start of Clerk.io E-commerce Personalisation tool - www.clerk.io -->
+<script type="text/javascript">
+  const CLERK_INIT_CLASS = 'clerk_manual';
+  const CLERK_CUSTOM_EVENT = 'clerk_constructed';
+  const CLERK_CUSTOM_ROUTE = 'clerk_routechange';
+
+  (function(w,d){
+    var e=d.createElement('script');e.type='text/javascript';e.async=true;
+    e.src=(d.location.protocol=='https:'?'https':'http')+'://cdn.clerk.io/clerk.js';
+    var s=d.getElementsByTagName('script')[0];s.parentNode.insertBefore(e,s);
+    w.__clerk_q=w.__clerk_q||[];w.Clerk=w.Clerk||function(){ w.__clerk_q.push(arguments) };
+  })(window,document);
+
+  Clerk('config', {
+    key: 'hM6X4O20xQH5jOZEvy9fLmAfROOe0iTn'
+  });
+
+  (() => {
+      window.clerk_init_class = CLERK_INIT_CLASS;
+      window.clerk_custom_event = CLERK_CUSTOM_EVENT;
+  })();
+
+</script>
+<!-- End of Clerk.io E-commerce Personalisation tool - www.clerk.io -->

@@ -1,0 +1,79 @@
+<!-- Start of Clerk.io E-commerce Personalisation tool - www.clerk.io -->
+<script type="text/javascript">
+  const CLERK_INIT_CLASS = 'clerk_manual';
+  const CLERK_CUSTOM_EVENT = 'clerk_constructed';
+  const CLERK_CUSTOM_ROUTE = 'clerk_routechange';
+
+  (function(w,d){
+    var e=d.createElement('script');e.type='text/javascript';e.async=true;
+    e.src=(d.location.protocol=='https:'?'https':'http')+'://cdn.clerk.io/clerk.js';
+    var s=d.getElementsByTagName('script')[0];s.parentNode.insertBefore(e,s);
+    w.__clerk_q=w.__clerk_q||[];w.Clerk=w.Clerk||function(){ w.__clerk_q.push(arguments) };
+  })(window,document);
+
+  Clerk('config', {
+    key: 'hM6X4O20xQH5jOZEvy9fLmAfROOe0iTn'
+  });
+
+  (() => {
+      window.clerk_init_class = CLERK_INIT_CLASS;
+      window.clerk_custom_event = CLERK_CUSTOM_EVENT;
+
+      let oldPushState = history.pushState;
+      history.pushState = function pushState() {
+          let ret = oldPushState.apply(this, arguments);
+          window.dispatchEvent(new Event('pushstate'));
+          window.dispatchEvent(new Event(CLERK_CUSTOM_ROUTE));
+          return ret;
+      };
+
+      let oldReplaceState = history.replaceState;
+      history.replaceState = function replaceState() {
+          let ret = oldReplaceState.apply(this, arguments);
+          window.dispatchEvent(new Event('replacestate'));
+          window.dispatchEvent(new Event(CLERK_CUSTOM_ROUTE));
+          return ret;
+      };
+
+      window.addEventListener('popstate', () => {
+          window.dispatchEvent(new Event(CLERK_CUSTOM_ROUTE));
+      });
+  })();
+
+  window.addEventListener(CLERK_CUSTOM_EVENT, function () {
+    dehydrateClerk();
+    hydrateClerk();
+  });
+
+  window.addEventListener(CLERK_CUSTOM_ROUTE, function () {
+    dehydrateClerk();
+    hydrateClerk();
+  });
+
+  const hydrateClerk = (init_class=CLERK_INIT_CLASS) => {
+    if(Clerk !== undefined){
+      Clerk('content', `.${init_class}`);
+    } else {
+      setTimeout(() => {
+        Clerk('content', `.${init_class}`);
+      }, 100);
+    }
+  }
+
+  const dehydrateClerk = (rendered_flag='data-clerk-content-id') => {
+    document.querySelectorAll(`[${rendered_flag}]`).forEach(rendered_element => {
+      if( ! rendered_element.hasAttribute( 'data-clerk-static-hydration' ) ){
+        if(rendered_element.dataset?.target && rendered_element.dataset?.facetsTarget){
+          document.querySelector(rendered_element.dataset.target).innerHTML = '';
+          document.querySelector(rendered_element.dataset.facetsTarget).innerHTML = '';
+          rendered_element.removeAttribute(rendered_flag);
+        } else {
+          rendered_element.innerHTML = '';
+          rendered_element.removeAttribute(rendered_flag);
+        }
+      }
+    });
+  }
+
+</script>
+<!-- End of Clerk.io E-commerce Personalisation tool - www.clerk.io -->
